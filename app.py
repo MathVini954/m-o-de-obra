@@ -34,17 +34,27 @@ MESES = {
 # LEITURA ACUMULATIVA
 # -----------------------------
 @st.cache_data
+@st.cache_data
 def carregar_dados():
+    if not os.path.exists(PASTA_EFETIVO):
+        st.error(f"Pasta '{PASTA_EFETIVO}' não encontrada.")
+        return pd.DataFrame()
+
+    arquivos = [
+        f for f in os.listdir(PASTA_EFETIVO)
+        if f.lower().endswith((".xlsx", ".xls"))
+    ]
+
+    if not arquivos:
+        st.error("Nenhum arquivo .xls ou .xlsx encontrado na pasta Efetivo.")
+        return pd.DataFrame()
+
     dfs = []
 
-    for arq in os.listdir(PASTA_EFETIVO):
-        if f.lower().endswith((".xlsx", ".xls")):
-            try:
-                mes_num = arq.split(".")[0]
-                mes_nome = MESES.get(mes_num, "Desconhecido")
-            except:
-                mes_num = None
-                mes_nome = "Desconhecido"
+    for arq in arquivos:
+        try:
+            # extrai número do mês (ex: 12.Dezembro - Folha.xls)
+            mes_num = arq.split(".")[0]
 
             caminho = os.path.join(PASTA_EFETIVO, arq)
             df = pd.read_excel(caminho)
@@ -53,9 +63,16 @@ def carregar_dados():
             df = df[colunas_validas].copy()
 
             df["Mes_Num"] = int(mes_num)
-            df["Mes"] = mes_nome
+            df["Mes"] = arq.split(".")[1].split(" ")[0]
 
             dfs.append(df)
+
+        except Exception as e:
+            st.warning(f"Erro ao processar {arq}: {e}")
+
+    if not dfs:
+        st.error("Arquivos encontrados, mas nenhum pôde ser carregado.")
+        return pd.DataFrame()
 
     return pd.concat(dfs, ignore_index=True, sort=False)
 
