@@ -38,7 +38,7 @@ def carregar_dados():
     dfs = []
 
     for arq in os.listdir(PASTA_EFETIVO):
-        if arq.endswith(".xlsx"):
+        if f.lower().endswith((".xlsx", ".xls")):
             try:
                 mes_num = arq.split(".")[0]
                 mes_nome = MESES.get(mes_num, "Desconhecido")
