@@ -107,11 +107,30 @@ num_cols = [
 ]
 
 for c in num_cols:
-    df_filtro[c] = pd.to_numeric(df_filtro[c], errors="coerce").fillna(0)
+    if c in df_filtro.columns:
+        df_filtro[c] = pd.to_numeric(df_filtro[c], errors="coerce").fillna(0)
+    else:
+        df_filtro[c] = 0
 
 # -----------------------------
 # CÁLCULOS
 # -----------------------------
+
+COLUNAS_CALCULO = [
+    "PRODUÇÃO",
+    "REFLEXO S/ PRODUÇÃO",
+    "Remuneração Líquida",
+    "Adiantamento 2",
+    "Hora Extra 70% - Sabado (Qtde)",
+    "Hora Extra 70% - Semana (Qtde)",
+    "Hora Extra 100% (Qtde)",
+    "Repouso Remunerado"
+]
+
+for c in COLUNAS_CALCULO:
+    if c not in df_filtro.columns:
+        df_filtro[c] = 0
+
 df_filtro["Peso Produção"] = (
     (df_filtro["PRODUÇÃO"] + df_filtro["REFLEXO S/ PRODUÇÃO"]) /
     (df_filtro["Remuneração Líquida"] - df_filtro["Adiantamento 2"])
