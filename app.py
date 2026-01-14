@@ -14,16 +14,20 @@ MESES = {
     10: "Outubro", 11: "Novembro", 12: "Dezembro"
 }
 
-# ------------------------------------------------
+# ======================================================
 # LEITURA DOS ARQUIVOS
-# ------------------------------------------------
+# ======================================================
 @st.cache_data
 def carregar_dados():
     dfs = []
 
     for arq in os.listdir(PASTA_EFETIVO):
         if arq.lower().endswith((".xls", ".xlsx")):
-            mes_num = int(arq.split(".")[0])
+            try:
+                mes_num = int(arq.split(".")[0])
+            except:
+                continue
+
             mes_nome = MESES.get(mes_num, "Desconhecido")
 
             df = pd.read_excel(os.path.join(PASTA_EFETIVO, arq))
@@ -32,14 +36,21 @@ def carregar_dados():
 
             dfs.append(df)
 
-    return pd.concat(dfs, ignore_index=True)
+    if not dfs:
+        return pd.DataFrame()
+
+    return pd.concat(dfs, ignore_index=True, sort=False)
 
 
 df = carregar_dados()
 
-# ------------------------------------------------
-# BLINDAGEM
-# ------------------------------------------------
+if df.empty:
+    st.error("Nenhum arquivo válido encontrado na pasta Efetivo.")
+    st.stop()
+
+# ======================================================
+# BLINDAGEM DE COLUNAS
+# ======================================================
 COLUNAS_TEXTO = [
     "Nome da Empresa",
     "Sexo",
@@ -63,21 +74,22 @@ COLUNAS_NUMERICAS = [
 for c in COLUNAS_TEXTO:
     if c not in df.columns:
         df[c] = "Não Informado"
+    df[c] = df[c].fillna("Não Informado").astype(str)
 
 for c in COLUNAS_NUMERICAS:
     if c not in df.columns:
         df[c] = 0
     df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-# ------------------------------------------------
+# ======================================================
 # FILTROS
-# ------------------------------------------------
+# ======================================================
 st.sidebar.title("Filtros")
 
-obras = sorted(df["Nome da Empresa"].unique())
-obra = st.sidebar.selectbox("Obra", ["Todas"] + obras)
+obras = sorted(df["Nome da Empresa"].dropna().astype(str).unique())
+obra_sel = st.sidebar.selectbox("Obra", ["Todas"] + obras)
 
-meses_disponiveis = (
+meses_df = (
     df[["Mes_Num", "Mes"]]
     .drop_duplicates()
     .sort_values("Mes_Num")
@@ -85,20 +97,20 @@ meses_disponiveis = (
 
 meses_sel = st.sidebar.multiselect(
     "Mês",
-    meses_disponiveis["Mes"],
-    default=list(meses_disponiveis["Mes"])
+    meses_df["Mes"].tolist(),
+    default=meses_df["Mes"].tolist()
 )
 
 df_filtro = df.copy()
 
-if obra != "Todas":
-    df_filtro = df_filtro[df_filtro["Nome da Empresa"] == obra]
+if obra_sel != "Todas":
+    df_filtro = df_filtro[df_filtro["Nome da Empresa"] == obra_sel]
 
 df_filtro = df_filtro[df_filtro["Mes"].isin(meses_sel)]
 
-# ------------------------------------------------
+# ======================================================
 # CÁLCULOS FINANCEIROS
-# ------------------------------------------------
+# ======================================================
 base_fin = df_filtro["Remuneração Líquida"] - df_filtro["Adiantamento 2"]
 base_fin = base_fin.replace(0, pd.NA)
 
@@ -113,13 +125,15 @@ df_filtro["Peso Hora Extra"] = (
     + df_filtro["Repouso Remunerado"]
 ) / base_fin
 
-# ------------------------------------------------
+# ======================================================
 # DASHBOARD
-# ------------------------------------------------
+# ======================================================
 st.title("Dashboard de Mão de Obra")
 
-# 🔹 EFETIVO MENSAL (QUANTIDADE)
-efetivo = (
+# ------------------------------------------------------
+# EFETIVO MENSAL (ACUMULATIVO – SEM FILTRO DE MÊS)
+# ------------------------------------------------------
+efetivo_mensal = (
     df.groupby(["Mes_Num", "Mes", "TIPO"])["Nome do funcionário"]
     .nunique()
     .reset_index(name="Efetivo")
@@ -127,7 +141,7 @@ efetivo = (
 )
 
 fig_efetivo = px.bar(
-    efetivo,
+    efetivo_mensal,
     x="Mes",
     y="Efetivo",
     color="TIPO",
@@ -137,46 +151,57 @@ fig_efetivo = px.bar(
 
 st.plotly_chart(fig_efetivo, use_container_width=True)
 
-# 🔹 PRODUÇÃO TOTAL (VALOR)
-prod = (
-    df_filtro.groupby("Mes")["PRODUÇÃO"]
-    .sum()
-    .reset_index()
+# ------------------------------------------------------
+# SEXO
+# ------------------------------------------------------
+sexo = (
+    df_filtro.groupby("Sexo")["Nome do funcionário"]
+    .nunique()
+    .reset_index(name="Quantidade")
 )
 
-fig_prod = px.bar(prod, x="Mes", y="PRODUÇÃO", title="Produção Total")
-st.plotly_chart(fig_prod, use_container_width=True)
-
-# 🔹 HORA EXTRA TOTAL (VALOR)
-he = (
-    df_filtro.groupby("Mes")[
-        [
-            "Hora Extra 70% - Sabado (Qtde)",
-            "Hora Extra 70% - Semana (Qtde)",
-            "Hora Extra 100% (Qtde)",
-            "Repouso Remunerado"
-        ]
-    ].sum()
-    .sum(axis=1)
-    .reset_index(name="Total HE")
+fig_sexo = px.pie(
+    sexo,
+    names="Sexo",
+    values="Quantidade",
+    title="Distribuição por Sexo"
 )
 
-fig_he = px.bar(he, x="Mes", y="Total HE", title="Total de Horas Extras")
-st.plotly_chart(fig_he, use_container_width=True)
+st.plotly_chart(fig_sexo, use_container_width=True)
 
-# 🔹 PESOS
-peso = (
-    df_filtro.groupby("Mes")[["Peso Produção", "Peso Hora Extra"]]
+# ------------------------------------------------------
+# DIRETO x INDIRETO
+# ------------------------------------------------------
+tipo = (
+    df_filtro.groupby("TIPO")["Nome do funcionário"]
+    .nunique()
+    .reset_index(name="Quantidade")
+)
+
+fig_tipo = px.pie(
+    tipo,
+    names="TIPO",
+    values="Quantidade",
+    title="Diretos x Indiretos"
+)
+
+st.plotly_chart(fig_tipo, use_container_width=True)
+
+# ------------------------------------------------------
+# PESO POR OBRA
+# ------------------------------------------------------
+peso_obra = (
+    df_filtro.groupby("Nome da Empresa")[["Peso Produção", "Peso Hora Extra"]]
     .mean()
     .reset_index()
 )
 
 fig_peso = px.line(
-    peso,
-    x="Mes",
+    peso_obra,
+    x="Nome da Empresa",
     y=["Peso Produção", "Peso Hora Extra"],
     markers=True,
-    title="Peso Produção x Hora Extra"
+    title="Peso de Produção e Hora Extra por Obra"
 )
 
 st.plotly_chart(fig_peso, use_container_width=True)
